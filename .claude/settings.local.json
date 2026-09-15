@@ -16,7 +16,11 @@
       "Bash(pkill -f \"build/index\")",
       "Bash(node -e ' *)",
       "Bash(git add *)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(node *)",
+      "Bash(pkill -f \"vite dev --port 5199\")",
+      "Bash(pkill -f \"vite dev\")",
+      "Bash(pkill -f \"[v]ite dev\")"
     ]
   }
 }

@@ -1,10 +1,14 @@
 // 初始化数据：6 台样单（覆盖各状态）+ 10 种配件库存 + 若干换件与旧件记录。
-// 只在空库首次启动时灌入；日期都相对当前时间生成，保证开箱就能看到
-// 在修中的单、已交车的单、以及一件「超过 14 天未处理」的待处置旧件。
-import { nowLocal, addDays } from './time.js';
+// 只在空库首次启动时灌入；日期相对当前时间生成，跨月的两单锚定月界，保证开箱就能看到
+// 在修中的单、本月与上月已交车的单、以及一件「超过 14 天未处理」的待处置旧件。
+import { nowLocal, addDays, currentMonth, shiftMonth } from './time.js';
 
 export function seed(db) {
   const now = nowLocal();
+  // 跨月锚点：要落在「本月」「上月」的单按当前月份算月界，不用固定天数硬减
+  const thisMonth = currentMonth();
+  const lastMonth = shiftMonth(thisMonth, -1);
+  const max = (a, b) => (a > b ? a : b); // 本地时间字符串可按字典序比较
 
   const insertInventory = db.prepare(
     `INSERT INTO inventory (name, unit, stock, cost_cents, created_at)
@@ -65,20 +69,22 @@ export function seed(db) {
       'WX-DEMO-03', 'F0E9D4', '喜德盛 旭日300', '变速不准，调变速并换线管',
       6000, addDays(now, -1), 'ready', d3, now, null, null, null, null
     );
-    // 4) 已交车（本月）：换链条 + 客户自带脚踏
+    // 4) 已交车（本月）：交车时间钳在本月 1 号之后，月初播种也不会滑到上月
     const d4 = addDays(now, -5);
+    const d4Delivered = max(addDays(now, -4), `${thisMonth}-01 00:00:00`);
     const o4 = insertOrder.run(
       'WX-DEMO-04', '12AB98', '永久 F1940', '链条拉长跳齿，更换链条；客户自带脚踏安装',
-      8000, addDays(now, -4), 'delivered', d4, d4, addDays(now, -4), null, null, null
+      8000, d4Delivered, 'delivered', d4, d4, d4Delivered, null, null, null
     ).lastInsertRowid;
     insertOrderPart.run(o4, 'inventory', invIds['链条 8速'], '链条 8速', 1, 3000, d4);
     insertOrderPart.run(o4, 'customer', null, '脚踏（客户自带）', 1, 0, d4);
     db.prepare('UPDATE inventory SET stock = stock - 1 WHERE id = ?').run(invIds['链条 8速']);
-    // 5) 已交车（上月）：上月交的，验证月报按交车月归集
-    const d5 = addDays(now, -35);
+    // 5) 已交车（上月）：锚在上月 15 号，几号播种都落在「上月」，验证月报按交车月归集
+    const d5Delivered = `${lastMonth}-15 10:00:00`;
+    const d5 = addDays(d5Delivered, -2);
     const o5 = insertOrder.run(
       'WX-DEMO-05', '7K2M55', '凤凰 26寸通勤', '更换刹车皮，调圈',
-      4000, addDays(now, -33), 'delivered', d5, d5, addDays(now, -33), null, null, null
+      4000, d5Delivered, 'delivered', d5, d5, d5Delivered, null, null, null
     ).lastInsertRowid;
     insertOrderPart.run(o5, 'inventory', invIds['刹车皮（V刹）'], '刹车皮（V刹）', 1, 1200, d5);
     db.prepare('UPDATE inventory SET stock = stock - 1 WHERE id = ?').run(invIds['刹车皮（V刹）']);

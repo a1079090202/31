@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createDb } from '../src/lib/server/db.js';
-import { monthlySummary } from '../src/lib/server/reports.js';
+import { monthlySummary, summaryCsv } from '../src/lib/server/reports.js';
 
 let db;
 
@@ -86,5 +86,14 @@ describe('月度毛利汇总', () => {
     const s = monthlySummary(db, '2026-07');
     expect(s.count).toBe(0);
     expect(s.totals).toEqual({ labor_cents: 0, parts_cost_cents: 0, gross_cents: 0 });
+  });
+});
+
+describe('CSV 导出', () => {
+  it('金额以分精确换算成元，不经过浮点', () => {
+    const csv = summaryCsv(db, '2026-09');
+    expect(csv).toContain('"80.00","46.00","34.00"'); // A 行：工费/成本/毛利
+    expect(csv).toContain('"40.00","12.00","28.00"'); // B 行
+    expect(csv).toContain('"合计","","","","120.00","58.00","62.00",""'); // 合计行
   });
 });

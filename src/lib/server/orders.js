@@ -2,6 +2,7 @@
 import { nowLocal } from './time.js';
 import { parseYuan } from './money.js';
 import { assertTransition, assertEditable, nextStatus, STATUS_LABELS } from './stateMachine.js';
+import { restock } from './inventory.js';
 
 export class OrderError extends Error {
   constructor(message) {
@@ -10,20 +11,29 @@ export class OrderError extends Error {
   }
 }
 
+/** 查单不抛错：详情页 load 用它，查不到由页面转 404 */
+export function findOrder(db, id) {
+  return db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+}
+
 export function getOrder(db, id) {
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+  const order = findOrder(db, id);
   if (!order) throw new OrderError(`工单不存在（id=${id}）`);
   return order;
 }
 
-/** 生成单号：WX + 年月日 + 当日序号，如 WX20260915-01 */
+/** 生成单号：WX + 年月日 + 当日序号，如 WX20260915-01。
+ *  序号取当日最大号 +1（不是 COUNT+1）：删单留洞、作废占号都不会撞号。 */
 function nextOrderNo(db, now) {
   const day = now.slice(0, 10).replaceAll('-', '');
   const prefix = `WX${day}-`;
   const row = db
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE order_no LIKE ? || '%'")
-    .get(prefix);
-  return `${prefix}${String(row.n + 1).padStart(2, '0')}`;
+    .prepare(
+      `SELECT COALESCE(MAX(CAST(SUBSTR(order_no, ?) AS INTEGER)), 0) AS max_seq
+       FROM orders WHERE order_no LIKE ? || '%'`
+    )
+    .get(prefix.length + 1, prefix);
+  return `${prefix}${String(row.max_seq + 1).padStart(2, '0')}`;
 }
 
 function validateOrderFields({ frame_tail, brand, fault_desc, labor_cents, expect_done_at }) {
@@ -52,16 +62,19 @@ export function createOrder(db, { frame_tail, brand, fault_desc, laborYuan, expe
   };
   validateOrderFields(fields);
   const now = nowLocal();
-  const r = db
-    .prepare(
-      `INSERT INTO orders
-         (order_no, frame_tail, brand, fault_desc, labor_cents, expect_done_at,
-          status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-    )
-    .run(nextOrderNo(db, now), fields.frame_tail, fields.brand, fields.fault_desc,
-      fields.labor_cents, fields.expect_done_at, now, now);
-  return r.lastInsertRowid;
+  // 取号与插单在同一事务里，不给并发留缝隙
+  const tx = db.transaction(() =>
+    db
+      .prepare(
+        `INSERT INTO orders
+           (order_no, frame_tail, brand, fault_desc, labor_cents, expect_done_at,
+            status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
+      )
+      .run(nextOrderNo(db, now), fields.frame_tail, fields.brand, fields.fault_desc,
+        fields.labor_cents, fields.expect_done_at, now, now)
+  );
+  return tx().lastInsertRowid;
 }
 
 /** 修改工单基础信息。已交车 / 已作废的单在这里被拦下。 */
@@ -98,17 +111,25 @@ export function advanceOrder(db, id) {
   return to;
 }
 
-/** 作废：必须留原因和经手人。已交车的单不能作废（状态机拦截）。 */
+/** 作废：必须留原因和经手人。已交车的单不能作废（状态机拦截）。
+ *  本单领用的库存件随作废一并退回库存，与翻状态在同一事务里，账实不脱节。 */
 export function voidOrder(db, id, { reason, operator }) {
   const order = getOrder(db, id);
   assertTransition(order.status, 'void');
   if (!reason?.trim()) throw new OrderError('作废必须填写原因');
   if (!operator?.trim()) throw new OrderError('作废必须填写经手人');
   const now = nowLocal();
-  db.prepare(
-    `UPDATE orders SET status='void', void_reason=?, void_operator=?, voided_at=?, updated_at=?
-     WHERE id=?`
-  ).run(reason.trim(), operator.trim(), now, now, id);
+  const drawn = db
+    .prepare("SELECT inventory_id, qty FROM order_parts WHERE order_id = ? AND source = 'inventory'")
+    .all(id);
+  const tx = db.transaction(() => {
+    for (const p of drawn) restock(db, p.inventory_id, p.qty); // 领了多少退回多少
+    db.prepare(
+      `UPDATE orders SET status='void', void_reason=?, void_operator=?, voided_at=?, updated_at=?
+       WHERE id=?`
+    ).run(reason.trim(), operator.trim(), now, now, id);
+  });
+  tx();
 }
 
 /** 列表查询：可按状态过滤，已作废的默认沉底 */

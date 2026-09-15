@@ -37,6 +37,13 @@ export function monthOf(localStr) {
   return localStr.slice(0, 7);
 }
 
+/** 月份平移：('2026-01', -1) -> '2025-12'，给「上月」这类锚点用 */
+export function shiftMonth(month, n) {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
+
 /** 当前月份 'YYYY-MM' */
 export function currentMonth() {
   return nowLocal().slice(0, 7);

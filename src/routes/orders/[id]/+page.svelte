@@ -5,6 +5,8 @@
   let { data, form } = $props();
   const o = data.order;
   const dtLocal = (s) => s.replace(' ', 'T').slice(0, 16);
+  // 动作校验失败时优先回显用户刚填的值，没填过的字段回落到单上现值
+  const v = (key, fallback = '') => form?.values?.[key] ?? fallback;
 </script>
 
 <h1>
@@ -36,8 +38,8 @@
     </div>
     {#if data.editable}
       <form method="POST" action="?/void" class="inline-form">
-        <input type="text" name="reason" placeholder="作废原因（必填）" required />
-        <input type="text" name="operator" placeholder="经手人（必填）" required />
+        <input type="text" name="reason" placeholder="作废原因（必填）" value={v('reason')} required />
+        <input type="text" name="operator" placeholder="经手人（必填）" value={v('operator')} required />
         <button class="btn danger small" type="submit">作废本单</button>
       </form>
     {/if}
@@ -50,16 +52,16 @@
     <form method="POST" action="?/update">
       <div class="form-grid">
         <label class="field"><span>车架号后六位</span>
-          <input name="frame_tail" value={o.frame_tail} maxlength="6" required /></label>
+          <input name="frame_tail" value={v('frame_tail', o.frame_tail)} maxlength="6" required /></label>
         <label class="field"><span>品牌 / 车型</span>
-          <input name="brand" value={o.brand} required /></label>
+          <input name="brand" value={v('brand', o.brand)} required /></label>
         <label class="field"><span>预估工费（元）</span>
-          <input name="labor" value={yuan(o.labor_cents)} inputmode="decimal" required /></label>
+          <input name="labor" value={v('labor', yuan(o.labor_cents))} inputmode="decimal" required /></label>
         <label class="field"><span>预计完工时间</span>
-          <input name="expect_done_at" type="datetime-local" value={dtLocal(o.expect_done_at)} required /></label>
+          <input name="expect_done_at" type="datetime-local" value={v('expect_done_at', dtLocal(o.expect_done_at))} required /></label>
       </div>
       <label class="field"><span>故障描述</span>
-        <textarea name="fault_desc">{o.fault_desc}</textarea></label>
+        <textarea name="fault_desc">{v('fault_desc', o.fault_desc)}</textarea></label>
       <button class="btn" type="submit">保存修改</button>
     </form>
   {:else}
@@ -101,17 +103,17 @@
   {#if data.editable}
     <h2>登记换件</h2>
     <form method="POST" action="?/addPart" class="inline-form">
-      <select name="source">
+      <select name="source" value={v('source', 'inventory')}>
         <option value="inventory">店里库存领用</option>
         <option value="customer">客户自带配件</option>
       </select>
-      <select name="inventory_id">
+      <select name="inventory_id" value={v('inventory_id', String(data.inventory[0]?.id ?? ''))}>
         {#each data.inventory as item}
-          <option value={item.id}>{item.name}（存 {item.stock} {item.unit}）</option>
+          <option value={String(item.id)}>{item.name}（存 {item.stock} {item.unit}）</option>
         {/each}
       </select>
-      <input type="text" name="part_name" placeholder="自带件填名称" />
-      <input type="number" name="qty" value="1" min="1" />
+      <input type="text" name="part_name" placeholder="自带件填名称" value={v('part_name')} />
+      <input type="number" name="qty" value={v('qty', '1')} min="1" />
       <button class="btn small" type="submit">登记</button>
     </form>
     <p class="muted" style="font-size:13px;">库存领用会立刻扣减库存，库存不够会被拦下；客户自带件不计成本。</p>
@@ -147,8 +149,8 @@
   {#if data.editable}
     <h2>登记拆下旧件</h2>
     <form method="POST" action="?/addOldPart" class="inline-form">
-      <input type="text" name="old_name" placeholder="旧件名称（必填）" required />
-      <input type="text" name="old_note" placeholder="备注（磨损情况等）" />
+      <input type="text" name="old_name" placeholder="旧件名称（必填）" value={v('old_name')} required />
+      <input type="text" name="old_note" placeholder="备注（磨损情况等）" value={v('old_note')} />
       <button class="btn small" type="submit">登记进保管区</button>
     </form>
     <p class="muted" style="font-size:13px;">旧件默认进保管区，超过 14 天未处理会进「待处置」提醒；处理去向在<a href="/storage">旧件保管区</a>操作。</p>
