@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(npm install *)",
+      "Bash(npm test *)",
+      "Bash(npm run *)",
+      "Bash(PORT=3000 node build)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl *)",
+      "Bash(env)",
+      "Bash(pkill -f \"node build\")",
+      "Bash(PORT=3000 npm start)",
+      "Bash(grep *)",
+      "Bash(pkill -f \"node scripts/start\")",
+      "Bash(pkill -f \"build/index\")",
+      "Bash(node -e ' *)",
+      "Bash(git add *)",
+      "Bash(git reset *)"
+    ]
+  }
+}
